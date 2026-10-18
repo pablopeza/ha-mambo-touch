@@ -14,9 +14,6 @@
   countdown (field `0d`) and the run state (field `02`) on their own, and the
   full report only when asked. Both are read now, and the full report is
   asked for on connect, after every command and every 5 minutes (`1f {}`).
-
-### Added
-
 - The set points dropped to 0 after every cook: at the end the robot resets
   its parameters (an echo with `duration`) just before it says it stopped,
   and that reset was taken as a change made on the robot.
