@@ -1,0 +1,79 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mambo Touch",
+        "description": "Login of the KitchenIdea MQTT broker the robot connects to, and the robot's device id (mboTouch…).",
+        "data": {
+          "host": "Broker",
+          "port": "Port",
+          "username": "Username",
+          "password": "Password",
+          "device_id": "Device id"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach the broker",
+      "invalid_auth": "Wrong username or password"
+    },
+    "abort": {
+      "already_configured": "This robot is already set up"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Broker connection"
+      }
+    },
+    "button": {
+      "start": {
+        "name": "Start"
+      },
+      "pause": {
+        "name": "Pause"
+      },
+      "resume": {
+        "name": "Resume"
+      },
+      "stop": {
+        "name": "Stop"
+      }
+    },
+    "number": {
+      "target_temperature": {
+        "name": "Target temperature"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "heat_power": {
+        "name": "Heat power"
+      },
+      "timer": {
+        "name": "Timer"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "stopped": "Stopped",
+          "cooking": "Cooking",
+          "paused": "Paused",
+          "unknown": "Unknown"
+        }
+      },
+      "current_temperature": {
+        "name": "Temperature"
+      },
+      "remaining_time": {
+        "name": "Time left"
+      },
+      "error_code": {
+        "name": "Error code"
+      }
+    }
+  }
+}

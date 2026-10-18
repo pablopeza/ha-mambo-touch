@@ -1,0 +1,79 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mambo Touch",
+        "description": "Usuario del broker MQTT de KitchenIdea al que se conecta el robot y el id del robot (mboTouch…).",
+        "data": {
+          "host": "Broker",
+          "port": "Puerto",
+          "username": "Usuario",
+          "password": "Contraseña",
+          "device_id": "Id del robot"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se puede conectar con el broker",
+      "invalid_auth": "Usuario o contraseña incorrectos"
+    },
+    "abort": {
+      "already_configured": "Este robot ya está configurado"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Conexión al broker"
+      }
+    },
+    "button": {
+      "start": {
+        "name": "Iniciar"
+      },
+      "pause": {
+        "name": "Pausar"
+      },
+      "resume": {
+        "name": "Reanudar"
+      },
+      "stop": {
+        "name": "Parar"
+      }
+    },
+    "number": {
+      "target_temperature": {
+        "name": "Temperatura objetivo"
+      },
+      "speed": {
+        "name": "Velocidad"
+      },
+      "heat_power": {
+        "name": "Potencia calorífica"
+      },
+      "timer": {
+        "name": "Temporizador"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Estado",
+        "state": {
+          "stopped": "Parado",
+          "cooking": "Cocinando",
+          "paused": "En pausa",
+          "unknown": "Desconocido"
+        }
+      },
+      "current_temperature": {
+        "name": "Temperatura"
+      },
+      "remaining_time": {
+        "name": "Tiempo restante"
+      },
+      "error_code": {
+        "name": "Código de error"
+      }
+    }
+  }
+}
