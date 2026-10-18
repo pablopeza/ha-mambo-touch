@@ -40,9 +40,4 @@ First version, not published yet.
   robot straight away, like in the app.
 - Buttons: start, pause, resume and stop. Start refuses to run without a
   timer or with a temperature below 37 °C.
-- Mambo HUD Card: jar that shows what the robot is doing (blades spin with
-  the speed, steam while heating), big clock with the time left or the timer,
-  current temperature, start / pause / resume / stop, temperature and timer
-  steppers, speed and heat power selectors, error and connection banner.
-  Starting with heat takes two taps. Visual editor that pre-fills the
-  integration's entities. Light and dark themes, English and Spanish.
+- Pairs with the [Mambo HUD Card](https://github.com/pablopeza/mambo-hud-card).
