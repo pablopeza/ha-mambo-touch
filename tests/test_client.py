@@ -147,6 +147,22 @@ class Client(unittest.TestCase):
             self.c.cook()
         self.assertIn(p.BTN_STOP, [x[10] for x in self.sent if x[6] == p.F_BUTTON])
 
+    def test_end_of_cook_keeps_setpoints(self):
+        # Real end of a cook: the zero echo comes before the "stopped" state.
+        self.c.setpoints.update(temperature=40, speed=1, firepower=4, timer=30)
+        self.receive(self.status())
+        self.receive(bytes.fromhex(
+            "55010110003c0f1600387b226475726174696f6e223a302c2266697265706f776572223a302c227370656564223a2230222c2274656d7065726174757265223a307d6ad515fcc0"))
+        self.receive(p.number(p.F_BUTTON, 2))
+        self.assertEqual(self.c.state.status, "stopped")
+        self.assertEqual((self.c.setpoints["temperature"], self.c.setpoints["speed"]), (40, 1))
+
+    def test_follows_knob_during_cook(self):
+        self.receive(self.status())
+        echo = {"firepower": 6, "speed": "3", "temperature": 60}
+        self.receive(p.envelope(p.field(p.F_PARAMS, p.T_JSON, json.dumps(echo))))
+        self.assertEqual((self.c.setpoints["temperature"], self.c.setpoints["speed"]), (60, 3))
+
     def test_stop_and_pause(self):
         self.c.halt()
         self.assertEqual(self.sent[0][10], p.BTN_STOP)

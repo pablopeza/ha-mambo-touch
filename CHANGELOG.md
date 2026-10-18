@@ -17,6 +17,12 @@
 
 ### Added
 
+- The set points dropped to 0 after every cook: at the end the robot resets
+  its parameters (an echo with `duration`) just before it says it stopped,
+  and that reset was taken as a change made on the robot.
+
+### Added
+
 - `probe_temperature` attribute on the status sensor (field `0e`).
 
 ## 0.1.0

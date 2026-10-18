@@ -162,14 +162,19 @@ class MamboClient:
     def _on_message(self, client, userdata, msg):
         self.last_seen = time.time()
         fields = p.parse_fields(msg.payload)
+        # A parameters echo with "duration" is the robot resetting them (at
+        # the end of a cook or when idle, all zeros); without it, it's a
+        # change it took during a cook.
+        reset = False
         if fields and fields[0].fid == p.F_PARAMS:
             data = fields[0].as_json()
             if data is not None and "type" not in data:
                 self._echo = data
                 self._echo_event.set()
+                reset = "duration" in data
         with self._lock:
             changed = self.state.apply(msg.payload)
-            if changed:
+            if changed and not reset:
                 self._follow_robot()
         if changed:
             self.notify()
