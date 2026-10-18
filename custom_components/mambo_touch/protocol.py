@@ -31,10 +31,13 @@ HEADER = bytes([0x55, 0x01, 0x01])
 CLASS_COMMAND = 0x10
 
 # Field ids
-F_BUTTON = 0x02  # 00 start/resume, 01 pause, 02 stop
+F_BUTTON = 0x02  # 00 start/resume, 01 pause, 02 stop; the robot reports "0.0" / "2.0"
 F_UI = 0x04  # "3.0" after start, "1.0" after stop
 F_TIMER = 0x09  # timer in seconds, "120.0"
+F_COUNTDOWN = 0x0D  # robot: seconds left, every second while cooking
+F_PROBE = 0x0E  # robot: second temperature, rises while heating
 F_PARAMS = 0x0F  # manual cooking parameters (JSON), both ways
+F_QUERY = 0x1F  # "{}" asks the robot for a full status report
 F_STATUS = 0xA0  # full status report from the robot (JSON)
 F_REAL_TEMP = 0xA1  # current temperature, "42.0"
 
@@ -95,6 +98,14 @@ def params(speed: int, firepower: int, temperature: int, elapsed: int = 0,
     }
     js = json.dumps(payload, separators=(",", ":"))
     return envelope(field(F_PARAMS, T_JSON, js), ts)
+
+
+def query(ts: int | None = None) -> bytes:
+    return envelope(field(F_QUERY, T_JSON, "{}"), ts)
+
+
+# Button state the robot reports in field 02 -> runStatus
+BUTTON_STATES = {0: RUN_COOKING, 1: RUN_PAUSED, 2: RUN_STOPPED}
 
 
 def start_sequence(speed: int, firepower: int, temperature: int, seconds: int,
@@ -182,8 +193,8 @@ def _int(value: Any) -> int | None:
         return None
 
 
-_STATE_KEYS = ("run_status", "temperature", "current_temperature", "firepower",
-               "speed", "remaining", "timer", "error_code", "turbo")
+_STATE_KEYS = ("run_status", "temperature", "current_temperature", "probe_temperature",
+               "firepower", "speed", "remaining", "timer", "error_code", "turbo")
 
 
 @dataclass
@@ -193,6 +204,7 @@ class MamboState:
     run_status: int | None = None
     temperature: int | None = None  # set point, 0 = no heat
     current_temperature: float | None = None
+    probe_temperature: float | None = None
     firepower: int | None = None
     speed: int | None = None
     remaining: int | None = None  # cookTime, seconds left
@@ -223,15 +235,27 @@ class MamboState:
                     self._apply_params(data)
                 else:
                     self._apply_status(data)
-            elif f.fid == F_REAL_TEMP and f.typ == T_NUMBER:
-                value = f.as_number()
-                if value is not None:
-                    self.current_temperature = value
+            elif f.typ == T_NUMBER:
+                self._apply_number(f.fid, f.as_number())
         if not fields and b"dialogStatus" in payload:
             data = find_json(payload)
             if data is not None:
                 self._apply_status(data)
         return before != self._snapshot()
+
+    def _apply_number(self, fid: int, value: float | None) -> None:
+        if value is None:
+            return
+        if fid == F_REAL_TEMP:
+            self.current_temperature = value
+        elif fid == F_PROBE:
+            self.probe_temperature = value
+        elif fid == F_COUNTDOWN:
+            self.remaining = int(value)
+        elif fid == F_BUTTON and int(value) in BUTTON_STATES:
+            self.run_status = BUTTON_STATES[int(value)]
+            if self.run_status == RUN_STOPPED:
+                self.remaining = 0
 
     def _apply_params(self, data: dict[str, Any]) -> None:
         # Echo of the manual parameters: {"duration","firepower","speed","temperature"}.

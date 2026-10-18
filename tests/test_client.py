@@ -14,9 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 try:
-    from homeassistant.exceptions import ServiceValidationError
+    from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
     from custom_components.mambo_touch import protocol as p
+    from custom_components.mambo_touch import client as client_mod
     from custom_components.mambo_touch.client import MamboClient, default_power
+
+    # The real waits are for the robot; the fake one answers at once.
+    client_mod.ECHO_TIMEOUT = 0.2
+    client_mod.SCREEN_DELAY = 0.01
+    client_mod.SEND_GAP = 0
 except ImportError:  # pragma: no cover
     MamboClient = None
 
@@ -36,7 +42,21 @@ class Client(unittest.TestCase):
         self.c = MamboClient(FakeHass(), "e1", "localhost", 1883, "u", "pw", "mboTouchTEST")
         self.c.connected = True
         self.sent = []
-        self.c._send = self.sent.extend
+        self.manual_screen = True
+        self.c._send = self.fake_send
+
+    def fake_send(self, packets):
+        # Behaves like the robot: echoes the parameters only on its manual
+        # cooking screen; on the home screen "start" just opens that screen.
+        for pkt in packets:
+            self.sent.append(pkt)
+            f = p.parse_fields(pkt)[0]
+            if f.fid == p.F_PARAMS and self.manual_screen:
+                js = f.as_json()
+                echo = {"firepower": js["firepower"], "speed": js["speed"], "temperature": js["temperature"]}
+                self.receive(p.envelope(p.field(p.F_PARAMS, p.T_JSON, json.dumps(echo))))
+            elif f.fid == p.F_BUTTON and f.value == b"\x00" and not self.manual_screen:
+                self.manual_screen = True
 
     def receive(self, payload):
         self.c._on_message(None, None, type("M", (), {"payload": payload}))
@@ -64,7 +84,7 @@ class Client(unittest.TestCase):
     def test_start_sequence(self):
         self.c.setpoints.update(temperature=40, speed=1, firepower=6, timer=120)
         self.c.cook()
-        self.assertEqual([x[6] for x in self.sent], [0x0F, 0x09, 0x02, 0x04])
+        self.assertEqual([x[6] for x in self.sent], [0x0F, 0x09, 0x02, 0x04, 0x1F])
         js = p.parse_fields(self.sent[0])[0].as_json()
         self.assertEqual(js, {"type": "1", "speed": "1", "time": 0, "firepower": 6, "temperature": 40})
         self.assertEqual(p.parse_fields(self.sent[1])[0].as_number(), 120.0)
@@ -81,7 +101,7 @@ class Client(unittest.TestCase):
 
     def test_setpoint_while_cooking_is_sent(self):
         self.receive(self.status())
-        self.c.state.timer = 120
+        self.c._cook_timer = 120
         self.c.set_point("speed", 2)
         js = p.parse_fields(self.sent[0])[0].as_json()
         self.assertEqual((js["speed"], js["time"], js["temperature"]), ("2", 20, 40))
@@ -97,6 +117,35 @@ class Client(unittest.TestCase):
         self.assertEqual(self.c.setpoints["temperature"], 80)
         self.receive(self.status())
         self.assertEqual((self.c.setpoints["temperature"], self.c.setpoints["speed"]), (40, 1))
+
+    def test_start_from_home_screen(self):
+        self.manual_screen = False
+        self.c.setpoints.update(temperature=40, speed=1, firepower=4, timer=30)
+        self.c.cook()
+        # params ignored -> start opens manual cooking -> params -> timer, start
+        self.assertEqual([x[6] for x in self.sent], [0x0F, 0x02, 0x0F, 0x09, 0x02, 0x04, 0x1F])
+
+    def test_start_gives_up_on_other_screen(self):
+        self.manual_screen = False
+        self.c._send = lambda pkts: self.sent.extend(pkts)  # never echoes
+        self.c.setpoints.update(temperature=40, speed=1, firepower=4, timer=30)
+        with self.assertRaises(HomeAssistantError):
+            self.c.cook()
+        self.assertNotIn(0x09, [x[6] for x in self.sent])
+
+    def test_lost_echo_that_started_is_stopped(self):
+        # Echo lost but the fallback "start" did start it: stop at once.
+        def send(pkts):
+            for pkt in pkts:
+                self.sent.append(pkt)
+                f = p.parse_fields(pkt)[0]
+                if f.fid == p.F_BUTTON and f.value == b"\x00":
+                    self.receive(p.number(p.F_BUTTON, 0))
+        self.c._send = send
+        self.c.setpoints.update(temperature=40, speed=1, firepower=4, timer=30)
+        with self.assertRaises(HomeAssistantError):
+            self.c.cook()
+        self.assertIn(p.BTN_STOP, [x[10] for x in self.sent if x[6] == p.F_BUTTON])
 
     def test_stop_and_pause(self):
         self.c.halt()

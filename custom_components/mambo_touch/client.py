@@ -23,6 +23,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from . import protocol as p
 from .const import (
     DEFAULT_SETPOINTS,
+    ECHO_TIMEOUT,
+    QUERY_INTERVAL,
+    SCREEN_DELAY,
     POWER_MAX,
     SEND_GAP,
     SIGNAL_UPDATE,
@@ -92,6 +95,11 @@ class MamboClient:
         self.connected = False
         self.last_seen: float | None = None
         self._lock = threading.Lock()
+        # Last cooking parameters the robot echoed back (field 0f).
+        self._echo: dict[str, Any] | None = None
+        self._echo_event = threading.Event()
+        self._cook_timer = 0
+        self._query_timer: threading.Timer | None = None
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                    client_id=new_client_id(), protocol=mqtt.MQTTv5)
         self._client.username_pw_set(username, password)
@@ -116,8 +124,19 @@ class MamboClient:
         self._client.loop_start()
 
     def stop(self) -> None:
+        if self._query_timer:
+            self._query_timer.cancel()
         self._client.loop_stop()
         self._client.disconnect()
+
+    def _query_loop(self) -> None:
+        # Idle, the robot only reports its temperature: ask for the rest now
+        # and then, so a cook started from the robot itself shows up.
+        if self.connected:
+            self._client.publish(self.cmd_topic, p.query(), qos=1)
+        self._query_timer = threading.Timer(QUERY_INTERVAL, self._query_loop)
+        self._query_timer.daemon = True
+        self._query_timer.start()
 
     def notify(self) -> None:
         self.hass.loop.call_soon_threadsafe(async_dispatcher_send, self.hass, self.signal)
@@ -130,6 +149,11 @@ class MamboClient:
         client.subscribe(f"kitchenidea/D/P/{self.device_id}", qos=1)
         self.connected = True
         self.notify()
+        if self._query_timer:
+            self._query_timer.cancel()
+        self._query_timer = threading.Timer(1, self._query_loop)
+        self._query_timer.daemon = True
+        self._query_timer.start()
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         self.connected = False
@@ -137,6 +161,12 @@ class MamboClient:
 
     def _on_message(self, client, userdata, msg):
         self.last_seen = time.time()
+        fields = p.parse_fields(msg.payload)
+        if fields and fields[0].fid == p.F_PARAMS:
+            data = fields[0].as_json()
+            if data is not None and "type" not in data:
+                self._echo = data
+                self._echo_event.set()
         with self._lock:
             changed = self.state.apply(msg.payload)
             if changed:
@@ -178,18 +208,50 @@ class MamboClient:
         power = default_power(temp) if temp and not power else (power if temp else 0)
         return temp, speed, min(power, POWER_MAX), min(timer, TIMER_MAX)
 
+    def _send_params(self, speed: int, power: int, temp: int, elapsed: int = 0) -> bool:
+        """Send the parameters and wait for the robot to echo them back.
+
+        The robot only takes them on its manual cooking screen; anywhere else
+        it ignores them without a word.
+        """
+        self._echo_event.clear()
+        self._send([p.params(speed, power, temp, elapsed)])
+        deadline = time.time() + ECHO_TIMEOUT
+        while self._echo_event.wait(max(0, deadline - time.time())):
+            echo = self._echo or {}
+            if p._int(echo.get("temperature")) == temp and p._int(echo.get("speed")) == speed:
+                return True
+            self._echo_event.clear()
+        return False
+
     def cook(self) -> None:
         temp, speed, power, timer = self._validated()
-        self._send(p.start_sequence(speed, power, temp, timer))
+        if not self._send_params(speed, power, temp):
+            # On the home screen "start" opens manual cooking (with everything
+            # at 0, so nothing runs). Then the parameters go through.
+            _LOGGER.debug("Mambo ignored the parameters, opening manual cooking")
+            self._send([p.button(p.BTN_START)])
+            time.sleep(SCREEN_DELAY)
+            if self.state.run_status == p.RUN_COOKING:
+                # It was on the manual screen after all and the echo got
+                # lost: it's running without our timer. Stop it.
+                self._send([*p.stop_sequence(), p.query()])
+                raise HomeAssistantError("The Mambo started without a timer and was stopped: try again")
+            if not self._send_params(speed, power, temp):
+                raise HomeAssistantError(
+                    "The Mambo didn't take the cooking parameters: open manual cooking on its screen")
+        self._cook_timer = timer
+        time.sleep(SEND_GAP)
+        self._send([p.number(p.F_TIMER, timer), p.button(p.BTN_START), p.number(p.F_UI, 3), p.query()])
 
     def pause(self) -> None:
-        self._send([p.button(p.BTN_PAUSE)])
+        self._send([p.button(p.BTN_PAUSE), p.query()])
 
     def resume(self) -> None:
-        self._send([p.button(p.BTN_START)])
+        self._send([p.button(p.BTN_START), p.query()])
 
     def halt(self) -> None:
-        self._send(p.stop_sequence())
+        self._send([*p.stop_sequence(), p.query()])
 
     def set_point(self, key: str, value: int) -> None:
         """Store a set point; while cooking, send it to the robot as well."""
@@ -201,8 +263,8 @@ class MamboClient:
             return
         # The app sends the time cooked so far with each change.
         elapsed = 0
-        if self.state.timer and self.state.remaining is not None:
-            elapsed = max(0, self.state.timer - self.state.remaining)
+        if self._cook_timer and self.state.remaining is not None:
+            elapsed = max(0, self._cook_timer - self.state.remaining)
         temp = sp["temperature"]
         power = sp["firepower"] if temp else 0
         self._send([p.params(sp["speed"], power, temp, elapsed)])

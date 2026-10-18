@@ -19,6 +19,7 @@ spec.loader.exec_module(p)
 
 TS = 0x652F_8A3C
 CAPTURE = json.loads((ROOT / "tests" / "fixtures" / "capture-idle.json").read_text())
+COOK = json.loads((ROOT / "tests" / "fixtures" / "capture-cook.json").read_text())["messages"]
 
 
 class Build(unittest.TestCase):
@@ -154,6 +155,32 @@ class Parse(unittest.TestCase):
         s = p.MamboState(temperature=40, speed=1, firepower=6, timer=120)
         s.apply(bytes.fromhex(CAPTURE["params_echo"]))
         self.assertEqual((s.temperature, s.speed, s.firepower, s.timer), (0, 0, 0, 0))
+
+    def test_capture_cook(self):
+        # Replay a real 30 s cook: the countdown and the button state come in
+        # their own fields, the full report only when someone asks (1f {}).
+        s = p.MamboState()
+        seen = []
+        for topic, hexstr in COOK:
+            if topic != "D/P":
+                continue
+            s.apply(bytes.fromhex(hexstr))
+            seen.append((s.status, s.remaining))
+        self.assertIn(("cooking", 30), seen)
+        self.assertIn(("cooking", 10), seen)
+        self.assertEqual(seen[-1][0], "stopped")
+        self.assertEqual(s.remaining, 0)
+        self.assertGreater(s.probe_temperature, 40)
+
+    def test_commands_in_cook_capture(self):
+        # What HA sent in that cook is what the builder makes.
+        sent = [bytes.fromhex(h) for t, h in COOK if t == "U/D"]
+        ts = int.from_bytes(sent[0][-5:-1], "big")
+        self.assertEqual(sent[0][:-5], p.params(1, 4, 40, 0, ts)[:-5])
+        self.assertEqual(sent[2][6:11], bytes.fromhex("0202000000"))
+
+    def test_query(self):
+        self.assertEqual(p.query(TS)[6:12], bytes.fromhex("1f160002") + b"{}")
 
     def test_ignores_unrelated_json(self):
         s = p.MamboState()

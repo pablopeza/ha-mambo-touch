@@ -20,5 +20,11 @@ DEFAULT_SETPOINTS = {"temperature": 0, "speed": 1, "firepower": 0, "timer": 60}
 
 # Pause between the packets of a sequence, like the app.
 SEND_GAP = 0.4
+# How long to wait for the robot to echo the cooking parameters back.
+ECHO_TIMEOUT = 2.5
+# After a "start" that only opened the manual cooking screen.
+SCREEN_DELAY = 1.5
+# Full status report requested this often (it also comes after every command).
+QUERY_INTERVAL = 300
 
 SIGNAL_UPDATE = f"{DOMAIN}_update_{{}}"

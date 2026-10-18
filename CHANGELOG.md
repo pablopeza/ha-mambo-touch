@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- Start did nothing when the robot was on its home screen: it only takes the
+  cooking parameters on the manual cooking screen and ignores them anywhere
+  else. Start now waits for the robot to echo the parameters back; if they
+  don't come, it opens manual cooking (a start on the home screen does just
+  that) and sends them again, or fails with a clear error. If that start
+  turns out to begin a cook without our timer, it stops it.
+- Status and time left stayed still during a cook: the robot sends the
+  countdown (field `0d`) and the run state (field `02`) on their own, and the
+  full report only when asked. Both are read now, and the full report is
+  asked for on connect, after every command and every 5 minutes (`1f {}`).
+
+### Added
+
+- `probe_temperature` attribute on the status sensor (field `0e`).
+
 ## 0.1.0
 
 First version, not published yet.

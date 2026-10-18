@@ -77,5 +77,8 @@ class MamboSensor(MamboEntity, SensorEntity):
         if self.entity_description.key != "status":
             return None
         s = self.client.state
+        # probe_temperature: field 0e, rises fast while heating (base or
+        # heater?, not known yet).
         return {"run_status": s.run_status, "turbo": s.turbo, "speed": s.speed,
-                "temperature": s.temperature, "firepower": s.firepower}
+                "temperature": s.temperature, "firepower": s.firepower,
+                "probe_temperature": s.probe_temperature}
